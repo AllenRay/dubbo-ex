@@ -22,7 +22,7 @@ public class UnSafeKryoObjectOutput implements ObjectOutput {
 
 
     public void writeObject(Object obj) throws IOException {
-        kryo.writeObject(output,obj);
+        kryo.writeClassAndObject(output,obj);
     }
 
     public void writeBool(boolean v) throws IOException {
