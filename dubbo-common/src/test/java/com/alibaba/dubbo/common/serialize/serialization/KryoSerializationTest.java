@@ -6,7 +6,6 @@ import com.alibaba.dubbo.common.serialize.ObjectOutput;
 import com.alibaba.dubbo.common.serialize.Serialization;
 import com.alibaba.dubbo.common.serialize.support.kryo.KryoSerialization;
 import com.alibaba.dubbo.common.serialize.support.kryo.UnSafeKryoSerialization;
-import com.esotericsoftware.kryo.Kryo;
 import org.junit.Assert;
 import org.junit.Test;
 

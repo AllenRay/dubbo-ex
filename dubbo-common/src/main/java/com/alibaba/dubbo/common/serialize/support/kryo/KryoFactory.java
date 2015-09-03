@@ -36,7 +36,7 @@ public abstract class KryoFactory {
 
 //    private static final KryoFactory factory = new PrototypeKryoFactory();
 //    private static final KryoFactory factory = new SingletonKryoFactory();
-    private static final KryoFactory factory = new ThreadLocalKryoFactory(); //使用thread local 来存储kryo 对象
+    private static final KryoFactory factory = new PooledKryoFactory();
 
     private final Set<Class> registrations = new LinkedHashSet<Class>();
 

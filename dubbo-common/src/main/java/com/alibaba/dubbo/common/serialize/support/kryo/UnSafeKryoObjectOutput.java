@@ -1,5 +1,6 @@
 package com.alibaba.dubbo.common.serialize.support.kryo;
 
+import com.alibaba.dubbo.common.serialize.Cleanable;
 import com.alibaba.dubbo.common.serialize.ObjectOutput;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.UnsafeOutput;
@@ -10,7 +11,7 @@ import java.io.OutputStream;
 /**
  * Created by Allen lei on 2015/8/31.
  */
-public class UnSafeKryoObjectOutput implements ObjectOutput {
+public class UnSafeKryoObjectOutput implements ObjectOutput,Cleanable {
 
     private final Kryo kryo = KryoFactory.getDefaultFactory().getKryo();
 
@@ -22,7 +23,7 @@ public class UnSafeKryoObjectOutput implements ObjectOutput {
 
 
     public void writeObject(Object obj) throws IOException {
-        kryo.writeClassAndObject(output,obj);
+        kryo.writeClassAndObject(output, obj);
     }
 
     public void writeBool(boolean v) throws IOException {
@@ -76,5 +77,9 @@ public class UnSafeKryoObjectOutput implements ObjectOutput {
 
     public void flushBuffer() throws IOException {
      output.flush();
+    }
+
+    public void cleanup() {
+        KryoFactory.getDefaultFactory().returnKryo(kryo);
     }
 }

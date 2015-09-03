@@ -16,32 +16,37 @@
 package com.alibaba.dubbo.common.serialize.support.kryo;
 
 import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.pool.KryoPool;
 
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * @author lishen
+ * 重写 dubbox 的逻辑使用kryo 自身提供的kryo pool
  */
 public class PooledKryoFactory extends KryoFactory {
 
-    private final Queue<Kryo> pool = new ConcurrentLinkedQueue<Kryo>();
+    private final com.esotericsoftware.kryo.pool.KryoFactory kryoFactory = new com.esotericsoftware.kryo.pool.KryoFactory() {
+        public Kryo create() {
+            return createKryo();
+        }
+    };
+
+    private final KryoPool pool = new KryoPool.Builder(kryoFactory).softReferences().build();
+
+
 
     @Override
     public void returnKryo(Kryo kryo) {
-        pool.offer(kryo);
+        pool.release(kryo);
     }
 
     @Override
     public void close() {
-        pool.clear();
+        //TODO why kryopool no close api.
     }
 
     public Kryo getKryo() {
-        Kryo kryo = pool.poll();
-        if (kryo == null) {
-            kryo = createKryo();
-        }
-        return kryo;
+         return pool.borrow();
     }
 }
