@@ -1,4 +1,4 @@
-/*
+package com.alibaba.dubbo.remoting.transport.netty4;/*
  * Copyright 1999-2011 Alibaba Group.
  *  
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,12 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alibaba.dubbo.remoting.transport.netty4;
 
 import com.alibaba.dubbo.common.URL;
 import com.alibaba.dubbo.remoting.*;
 
-
+/**
+ * @author ding.lid
+ */
 public class NettyTransporter implements Transporter {
 
     public static final String NAME = "netty4";

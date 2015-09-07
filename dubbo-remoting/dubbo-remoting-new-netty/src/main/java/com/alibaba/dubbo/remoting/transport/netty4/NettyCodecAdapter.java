@@ -1,4 +1,4 @@
-/*
+package com.alibaba.dubbo.remoting.transport.netty4;/*
  * Copyright 1999-2011 Alibaba Group.
  *  
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,14 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alibaba.dubbo.remoting.transport.netty4;
 
 import com.alibaba.dubbo.common.Constants;
 import com.alibaba.dubbo.common.URL;
 import com.alibaba.dubbo.remoting.Codec2;
-import com.alibaba.dubbo.remoting.buffer.DynamicChannelBuffer;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.MessageToMessageEncoder;
@@ -29,9 +29,9 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * NettyCodecAdapter.
+ * com.alibaba.dubbo.remoting.transport.netty4.NettyCodecAdapter.
  * 
- *
+ * @author qian.lei
  */
 final class NettyCodecAdapter {
 
@@ -63,52 +63,50 @@ final class NettyCodecAdapter {
         return decoder;
     }
 
-    @ChannelHandler.Sharable
+    @Sharable
     private class InternalEncoder extends MessageToMessageEncoder<Object> {
-
+    	private Netty4WriteChannelBuffer buffer = new Netty4WriteChannelBuffer();
         @Override
-        protected void encode(ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
-            com.alibaba.dubbo.remoting.buffer.ChannelBuffer buffer =
-                com.alibaba.dubbo.remoting.buffer.ChannelBuffers.dynamicBuffer(1024,NettyBackedChannelBufferFactory.getInstance());
-            NettyChannel channel = NettyChannel.getOrAddChannel(ctx.channel(), url, handler);
+        protected void encode(ChannelHandlerContext ctx, Object message, List<Object> out) throws Exception {
+
+        	buffer.initialize(ctx.alloc());
+            Channel ch = ctx.channel();
+            NettyChannel channel = NettyChannel.getOrAddChannel(ch, url, handler);
             try {
-            	codec.encode(channel, buffer, msg);
+            	codec.encode(channel, buffer, message);
+            	if(buffer.readableBytes() > 0){
+            		out.add(buffer.toByteBuf());
+            	}
             } finally {
+            	buffer.clear();
                 NettyChannel.removeChannelIfDisconnected(ctx.channel());
             }
-            out.add(ctx.alloc().buffer(buffer.readableBytes()).writeBytes(buffer.toByteBuffer()));
         }
     }
 
     private class InternalDecoder extends SimpleChannelInboundHandler<ByteBuf> {
 
-        private com.alibaba.dubbo.remoting.buffer.ChannelBuffer buffer =
-                com.alibaba.dubbo.remoting.buffer.ChannelBuffers.EMPTY_BUFFER;
 
-        @Override
+    	Netty4ReadChannelBuffer buffer = new Netty4ReadChannelBuffer();
+ 
+		@Override
+		public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+			super.channelInactive(ctx);
+			buffer.clear();
+		}
+
+		@Override
+		public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+			super.handlerRemoved(ctx);
+			buffer.clear();
+		}
+
+		@Override
         public void channelRead0(ChannelHandlerContext ctx, ByteBuf input) throws Exception {
-            int readable = input.readableBytes();
-            if (readable <= 0) return;
-            com.alibaba.dubbo.remoting.buffer.ChannelBuffer message;
-            if (buffer.readable()) {
-                if (buffer instanceof DynamicChannelBuffer) {
-                    buffer.writeBytes(input.nioBuffer());
-                    message = buffer;
-                } else {
-                    int size = buffer.readableBytes() + input.readableBytes();
-                    message = com.alibaba.dubbo.remoting.buffer.ChannelBuffers.dynamicBuffer(
-                            size > bufferSize ? size : bufferSize);
-                    message.writeBytes(buffer, buffer.readableBytes());
-                    message.writeBytes(input.nioBuffer());
-                }
-            } else {
-                message = com.alibaba.dubbo.remoting.buffer.ChannelBuffers.dynamicBuffer(input.readableBytes());
-                message.writeBytes(input.nioBuffer());
-                //g fix 2014.11.29 aruan
-                //input.nioBuffer will be use by other channel read or else, so use can not persist
-                //message = com.alibaba.dubbo.remoting.buffer.ChannelBuffers.wrappedBuffer(input.nioBuffer());
-            }
-
+        	int readable = input.readableBytes();
+        	if(readable <= 0) return;
+            buffer.add(input);
+             
             NettyChannel channel = NettyChannel.getOrAddChannel(ctx.channel(), url, handler);
             Object msg;
             int saveReaderIndex;
@@ -116,36 +114,40 @@ final class NettyCodecAdapter {
             try {
                 // decode object.
                 do {
-                    saveReaderIndex = message.readerIndex();
+                    saveReaderIndex = buffer.readerIndex();
                     try {
-                        msg = codec.decode(channel, message);
+                        msg = codec.decode(channel, buffer);
                     } catch (IOException e) {
-                        buffer = com.alibaba.dubbo.remoting.buffer.ChannelBuffers.EMPTY_BUFFER;
+                        //buffer = com.alibaba.dubbo.remoting.buffer.ChannelBuffers.EMPTY_BUFFER;
+                    	buffer.compact();
                         throw e;
                     }
                     if (msg == Codec2.DecodeResult.NEED_MORE_INPUT) {
-                        message.readerIndex(saveReaderIndex);
+                        buffer.readerIndex(saveReaderIndex);
                         break;
                     } else {
-                        if (saveReaderIndex == message.readerIndex()) {
-                            buffer = com.alibaba.dubbo.remoting.buffer.ChannelBuffers.EMPTY_BUFFER;
+                        if (saveReaderIndex == buffer.readerIndex()) {
+                            //buffer = com.alibaba.dubbo.remoting.buffer.ChannelBuffers.EMPTY_BUFFER;
+                        	buffer.compact();
                             throw new IOException("Decode without read data.");
                         }
                         if (msg != null) {
-                            ctx.fireChannelRead(msg);
+                        	ctx.fireChannelRead(msg);
                         }
                     }
-                } while (message.readable());
-            } finally {
-                if (message.readable()) {
-                    message.discardReadBytes();
-                    buffer = message;
-                } else {
-                    buffer = com.alibaba.dubbo.remoting.buffer.ChannelBuffers.EMPTY_BUFFER;
-                }
+                } while (buffer.readable());
+            }catch (Exception e){
+                e.printStackTrace();
+            }finally {
+                buffer.compact();
                 NettyChannel.removeChannelIfDisconnected(ctx.channel());
             }
         }
-    }
 
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+            //ctx.write(e);
+        	ctx.fireExceptionCaught(cause);
+        }
+    }
 }

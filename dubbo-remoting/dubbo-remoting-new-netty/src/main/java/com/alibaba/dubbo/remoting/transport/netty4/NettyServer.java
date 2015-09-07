@@ -1,4 +1,4 @@
-/*
+package com.alibaba.dubbo.remoting.transport.netty4;/*
  * Copyright 1999-2011 Alibaba Group.
  *  
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,14 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alibaba.dubbo.remoting.transport.netty4;
 
 import com.alibaba.dubbo.common.Constants;
 import com.alibaba.dubbo.common.URL;
 import com.alibaba.dubbo.common.logger.Logger;
 import com.alibaba.dubbo.common.logger.LoggerFactory;
 import com.alibaba.dubbo.common.utils.ExecutorUtil;
-import com.alibaba.dubbo.common.utils.NamedThreadFactory;
 import com.alibaba.dubbo.common.utils.NetUtils;
 import com.alibaba.dubbo.remoting.Channel;
 import com.alibaba.dubbo.remoting.ChannelHandler;
@@ -29,76 +27,106 @@ import com.alibaba.dubbo.remoting.Server;
 import com.alibaba.dubbo.remoting.transport.AbstractServer;
 import com.alibaba.dubbo.remoting.transport.dispatcher.ChannelHandlers;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.*;
+import io.netty.channel.epoll.EpollEventLoopGroup;
+import io.netty.channel.epoll.EpollServerSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.util.internal.SystemPropertyUtil;
 
 import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 /**
- * NettyServer
+ * com.alibaba.dubbo.remoting.transport.netty4.NettyServer
  * 
  * @author qian.lei
  * @author chao.liuc
  */
 public class NettyServer extends AbstractServer implements Server {
-
+    
     private static final Logger logger = LoggerFactory.getLogger(NettyServer.class);
 
     private Map<String, Channel>  channels; // <ip:port, channel>
 
-    private io.netty.channel.Channel channel;
-
+    private ServerBootstrap bootstrap;
     private EventLoopGroup bossGroup;
-
     private EventLoopGroup workerGroup;
+    //private EventExecutorGroup handleGroup;
+
+    private io.netty.channel.Channel channel;
 
     public NettyServer(URL url, ChannelHandler handler) throws RemotingException {
         super(url, ChannelHandlers.wrap(handler, ExecutorUtil.setThreadName(url, SERVER_THREAD_POOL_NAME)));
     }
 
-    @Override
+
+	@Override
     protected void doOpen() throws Throwable {
         NettyHelper.setNettyLoggerFactory();
-        ServerBootstrap bootstrap = new ServerBootstrap();
+        
+        int threads = getUrl().getPositiveParameter(Constants.IO_THREADS_KEY, Constants.DEFAULT_IO_THREADS);//Runtime.getRuntime().availableProcessors()*2;
+        
+        String name = SystemPropertyUtil.get("os.name").toLowerCase(Locale.UK).trim();
+        bootstrap = new ServerBootstrap();
+        if (!name.startsWith("linux")) {
+            bossGroup = new NioEventLoopGroup(threads,  new NettyThreadFactory(null, "NettyServerBoss", true));
+            workerGroup = new NioEventLoopGroup(threads, new NettyThreadFactory(null, "NettyServerWorker", true));
+            bootstrap.group(bossGroup, workerGroup);
+            bootstrap.channel(NioServerSocketChannel.class);
+        }else{
+            bossGroup = new EpollEventLoopGroup(threads,  new NettyThreadFactory(null, "NettyServerBoss", true));
+            workerGroup = new EpollEventLoopGroup(threads, new NettyThreadFactory(null, "NettyServerWorker", true));
+            bootstrap.group(bossGroup, workerGroup);
+            bootstrap.channel(EpollServerSocketChannel.class);
+        }
+        bootstrap.childOption(ChannelOption.TCP_NODELAY, true);
+		bootstrap.childOption(ChannelOption.SO_REUSEADDR, true);
+		bootstrap.childOption(ChannelOption.SO_KEEPALIVE, true);
+		bootstrap.childOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, getTimeout());
+		bootstrap.childOption(ChannelOption.SO_RCVBUF, 100*1024);
+		bootstrap.childOption(ChannelOption.SO_SNDBUF, 100*1024);
+		bootstrap.childOption(ChannelOption.RCVBUF_ALLOCATOR, AdaptiveRecvByteBufAllocator.DEFAULT);
+		
+		//选择内存分配模型
+		bootstrap.option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
+		bootstrap.childOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
+		
         
         final NettyHandler nettyHandler = new NettyHandler(getUrl(), this);
         channels = nettyHandler.getChannels();
-
-        bossGroup = new NioEventLoopGroup(1, (new NamedThreadFactory("NettyServerBoss", true)));
-        workerGroup = new NioEventLoopGroup(getUrl().getPositiveParameter(Constants.IO_THREADS_KEY, Constants.DEFAULT_IO_THREADS), new NamedThreadFactory("NettyServerWorker", true));
-
-        bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class);
-        bootstrap.childOption(ChannelOption.TCP_NODELAY, false).childOption(ChannelOption.SO_RCVBUF, 128).childOption(ChannelOption.SO_SNDBUF,128);
-        bootstrap.childHandler(new ChannelInitializer() {
-
-            public void initChannel(io.netty.channel.Channel ch) {
-                NettyCodecAdapter adapter = new NettyCodecAdapter(getCodec(), getUrl(), NettyServer.this);
-                ChannelPipeline channelPipeline = ch.pipeline();
-                channelPipeline.addLast(adapter.getDecoder());
-                channelPipeline.addLast(adapter.getEncoder());
-                channelPipeline.addLast(nettyHandler);
+        bootstrap.childHandler(new ChannelInitializer<SocketChannel>() {
+        	@Override
+            public void initChannel(SocketChannel channel) {
+                NettyCodecAdapter adapter = new NettyCodecAdapter(getCodec() ,getUrl(), NettyServer.this);
+                ChannelPipeline pipeline = channel.pipeline();
+                pipeline.addLast("decoder", adapter.getDecoder());
+                pipeline.addLast("encoder", adapter.getEncoder());
+                pipeline.addLast("handler", nettyHandler);
             }
         });
-
-
+        
+        //this.setExecutorService(handleGroup.next());
         // bind
-        ChannelFuture channelFuture = bootstrap.bind(getBindAddress());
-
-        channelFuture.awaitUninterruptibly();
-        channel = channelFuture.channel();
-
+        ChannelFuture future = bootstrap.bind(getBindAddress());
+        future.awaitUninterruptibly();
+        channel = future.channel();
     }
 
     @Override
     protected void doClose() throws Throwable {
+    	//super.close();
         try {
             if (channel != null) {
                 // unbind.
-                channel.close().syncUninterruptibly();
+            	channel.closeFuture();
+                channel.close();
             }
         } catch (Throwable e) {
             logger.warn(e.getMessage(), e);
@@ -117,19 +145,23 @@ public class NettyServer extends AbstractServer implements Server {
         } catch (Throwable e) {
             logger.warn(e.getMessage(), e);
         }
-
         try {
-            // and then shutdown the thread pools
-            if (bossGroup != null) {
-                bossGroup.shutdownGracefully();
-            }
-            if (workerGroup != null) {
-                workerGroup.shutdownGracefully();
+        	if(bossGroup != null){
+        		bossGroup.shutdownGracefully();
+        		bossGroup = null;
+        	}
+        	if(workerGroup != null){
+        		workerGroup.shutdownGracefully();
+        		workerGroup = null;
+        	}
+            if (bootstrap != null) { 
+                // release external resource.
+                //bootstrap.releaseExternalResources();
+            	bootstrap = null;
             }
         } catch (Throwable e) {
             logger.warn(e.getMessage(), e);
         }
-
         try {
             if (channels != null) {
                 channels.clear();

@@ -1,4 +1,4 @@
-/*
+package com.alibaba.dubbo.remoting.transport.netty4;/*
  * Copyright 1999-2011 Alibaba Group.
  *  
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alibaba.dubbo.remoting.transport.netty4;
 
 import com.alibaba.dubbo.common.Constants;
 import com.alibaba.dubbo.common.URL;
@@ -31,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * NettyChannel.
+ * com.alibaba.dubbo.remoting.transport.netty4.NettyChannel.
  * 
  * @author qian.lei
  * @author william.liangf
@@ -42,7 +41,7 @@ final class NettyChannel extends AbstractChannel {
 
     private static final ConcurrentMap<Channel, NettyChannel> channelMap = new ConcurrentHashMap<Channel, NettyChannel>();
 
-    private final Channel channel;
+    private final io.netty.channel.Channel channel;
 
     private final Map<String, Object> attributes = new ConcurrentHashMap<String, Object>();
 
@@ -54,7 +53,7 @@ final class NettyChannel extends AbstractChannel {
         this.channel = channel;
     }
 
-    static NettyChannel getOrAddChannel(Channel ch, URL url, ChannelHandler handler) {
+    static NettyChannel getOrAddChannel(io.netty.channel.Channel ch, URL url, ChannelHandler handler) {
         if (ch == null) {
             return null;
         }
@@ -96,13 +95,19 @@ final class NettyChannel extends AbstractChannel {
         int timeout = 0;
         try {
             ChannelFuture future = channel.writeAndFlush(message);
+
             if (sent) {
                 timeout = getUrl().getPositiveParameter(Constants.TIMEOUT_KEY, Constants.DEFAULT_TIMEOUT);
-                success = future.syncUninterruptibly().await(timeout);
+                success = future.await(timeout);
             }
             Throwable cause = future.cause();
             if (cause != null) {
-                throw cause;
+                //throw cause;
+                success = future.await(timeout);
+            }
+            cause = future.cause();
+            if(cause != null){
+            	throw cause;
             }
         } catch (Throwable e) {
             throw new RemotingException(this, "Failed to send message " + message + " to " + getRemoteAddress() + ", cause: " + e.getMessage(), e);
@@ -134,7 +139,7 @@ final class NettyChannel extends AbstractChannel {
             if (logger.isInfoEnabled()) {
                 logger.info("Close netty channel " + channel);
             }
-            channel.close().syncUninterruptibly();
+            channel.close();
         } catch (Exception e) {
             logger.warn(e.getMessage(), e);
         }
@@ -164,7 +169,7 @@ final class NettyChannel extends AbstractChannel {
     public int hashCode() {
         final int prime = 31;
         int result = 1;
-        result = prime * result + (channel.hashCode());
+        result = prime * result + ((channel == null) ? 0 : channel.hashCode());
         return result;
     }
 
@@ -174,12 +179,15 @@ final class NettyChannel extends AbstractChannel {
         if (obj == null) return false;
         if (getClass() != obj.getClass()) return false;
         NettyChannel other = (NettyChannel) obj;
-        return channel.equals(other.channel);
+        if (channel == null) {
+            if (other.channel != null) return false;
+        } else if (!channel.equals(other.channel)) return false;
+        return true;
     }
 
     @Override
     public String toString() {
-        return "NettyChannel [channel=" + channel + "]";
+        return "com.alibaba.dubbo.remoting.transport.netty4.NettyChannel [channel=" + channel + "]";
     }
 
 }

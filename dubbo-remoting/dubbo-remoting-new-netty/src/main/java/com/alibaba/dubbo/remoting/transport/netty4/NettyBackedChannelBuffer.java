@@ -18,11 +18,11 @@ public class NettyBackedChannelBuffer implements ChannelBuffer {
 
     private ByteBuf buffer;
 
-    public ByteBuf nettyChannelBuffer() {
+    public io.netty.buffer.ByteBuf nettyChannelBuffer() {
         return buffer;
     }
 
-    public NettyBackedChannelBuffer(ByteBuf buffer) {
+    public NettyBackedChannelBuffer(io.netty.buffer.ByteBuf buffer) {
         Assert.notNull(buffer, "buffer == null");
         this.buffer = buffer;
     }
@@ -81,8 +81,7 @@ public class NettyBackedChannelBuffer implements ChannelBuffer {
     public void setBytes(int index, ChannelBuffer src, int srcIndex, int length) {
         // careful
         byte[] data = new byte[length];
-        //TODO is right ?
-        src.getBytes(srcIndex, data, 0, length);
+        buffer.getBytes(srcIndex, data, 0, length);
         setBytes(0, data, index, length);
     }
 
