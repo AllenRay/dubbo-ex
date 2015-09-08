@@ -17,6 +17,7 @@ package com.alibaba.dubbo.common.serialize.support.kryo;
 
 import com.alibaba.dubbo.common.serialize.support.SerializableClassRegistry;
 import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.serializers.CompatibleFieldSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers;
 import de.javakaffee.kryoserializers.*;
 
@@ -72,6 +73,7 @@ public abstract class KryoFactory {
         }
 
         Kryo kryo = new CompatibleKryo();
+        kryo.setDefaultSerializer(CompatibleFieldSerializer.class);
 
         // TODO
 //        kryo.setReferences(false);
@@ -91,7 +93,7 @@ public abstract class KryoFactory {
 
         // now just added some very common classes
         // TODO optimization
-        kryo.register(HashMap.class);
+        /*kryo.register(HashMap.class);
         kryo.register(ArrayList.class);
         kryo.register(LinkedList.class);
         kryo.register(HashSet.class);
@@ -113,7 +115,7 @@ public abstract class KryoFactory {
         kryo.register(char[].class);
         kryo.register(int[].class);
         kryo.register(float[].class);
-        kryo.register(double[].class);
+        kryo.register(double[].class);*/
 
         for (Class clazz : registrations) {
             kryo.register(clazz);
