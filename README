@@ -3,3 +3,5 @@
 
 如果要使用neety 4，在配置protocol 的时候 指定transporter/server/client
  <dubbo:protocol name="dubbo" port="20987" dispather="all" threadpool="fixed" threads="100" transporter="netty4" server="netty4" client="netty4"/>
+ 
+ 在windows 平台上面使用NIO，而在linux 系统上面使用epoll，大幅提高性能
