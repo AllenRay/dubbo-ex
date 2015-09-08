@@ -92,7 +92,9 @@ public class NettyServer extends AbstractServer implements Server {
 		bootstrap.childOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, getTimeout());
 		bootstrap.childOption(ChannelOption.SO_RCVBUF, 100*1024);
 		bootstrap.childOption(ChannelOption.SO_SNDBUF, 100*1024);
-		bootstrap.childOption(ChannelOption.RCVBUF_ALLOCATOR, AdaptiveRecvByteBufAllocator.DEFAULT);
+		//bootstrap.childOption(ChannelOption.RCVBUF_ALLOCATOR, AdaptiveRecvByteBufAllocator.DEFAULT);
+        bootstrap.childOption(ChannelOption.WRITE_BUFFER_HIGH_WATER_MARK, 32 * 1024);
+        bootstrap.childOption(ChannelOption.WRITE_BUFFER_LOW_WATER_MARK, 8 * 1024);
 		
 		//选择内存分配模型
 		bootstrap.option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);

@@ -18,6 +18,7 @@ import com.alibaba.dubbo.common.URL;
 import com.alibaba.dubbo.common.utils.NetUtils;
 import com.alibaba.dubbo.remoting.Channel;
 import com.alibaba.dubbo.remoting.ChannelHandler;
+import com.alibaba.dubbo.remoting.RemotingException;
 import io.netty.channel.*;
 
 import java.net.InetSocketAddress;
@@ -41,8 +42,6 @@ public class NettyHandler extends ChannelHandlerAdapter implements
 
 	private final ChannelHandler handler;
 
-	// private ExecutorService executor ;
-
 	public NettyHandler(URL url, ChannelHandler handler) {
 		if (url == null) {
 			throw new IllegalArgumentException("url == null");
@@ -52,9 +51,6 @@ public class NettyHandler extends ChannelHandlerAdapter implements
 		}
 		this.url = url;
 		this.handler = handler;
-		// int threads = url.getPositiveParameter(Constants.IO_THREADS_KEY,
-		// Constants.DEFAULT_IO_THREADS);
-		// executor = Executors.newCachedThreadPool();
 	}
 
 	public Map<String, Channel> getChannels() {
@@ -75,16 +71,7 @@ public class NettyHandler extends ChannelHandlerAdapter implements
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
 		io.netty.channel.Channel c = ctx.channel();
 		NettyChannel channel = NettyChannel.getOrAddChannel(c, url, handler);
-		/**
-		 * 防火墙规则，如果有任何一个防火墙拒绝了，则不允许该连接 kingbo.ruan 2014.09.17
-		 */
-		/*Interceptor interceptor = InterceptorUtils.getInterceptor();
-		if (interceptor != null
-				&& !interceptor.acceptAfterConnected(channel.getRemoteAddress().getAddress())) {
-			c.disconnect();
-			c.close();
-			return;
-		}*/
+
 		try {
 			if (channel != null) {
 				channels.put(NetUtils.toAddressString((InetSocketAddress) ctx
@@ -115,25 +102,40 @@ public class NettyHandler extends ChannelHandlerAdapter implements
 		ctx.fireChannelInactive();
 	}
 
-	public void channelRead(ChannelHandlerContext ctx, Object msg)
+	public void channelRead(ChannelHandlerContext ctx, final Object msg)
 			throws Exception {
-		NettyChannel channel = NettyChannel.getOrAddChannel(ctx.channel(), url,
-				handler);
+		final NettyChannel channel = NettyChannel.getOrAddChannel(ctx.channel(), url,handler);
 		try {
-			handler.received(channel, msg);
+			ctx.channel().eventLoop().execute(new Runnable() {
+				public void run() {
+					try {
+						handler.received(channel, msg);
+					} catch (RemotingException e) {
+						throw new RuntimeException(e);
+					}
+				}
+			});
+
 		} finally {
 			NettyChannel.removeChannelIfDisconnected(ctx.channel());
 		}
 		ctx.fireChannelRead(msg);
 	}
 
-	public void write(ChannelHandlerContext ctx, Object msg,
-			ChannelPromise promise) throws Exception {
+	public void write(ChannelHandlerContext ctx, final Object msg,ChannelPromise promise) throws Exception {
 		ctx.writeAndFlush(msg, promise);
-		NettyChannel channel = NettyChannel.getOrAddChannel(ctx.channel(), url,
-				handler);
+		final NettyChannel channel = NettyChannel.getOrAddChannel(ctx.channel(), url,handler);
 		try {
-			handler.sent(channel, msg);
+			ctx.channel().eventLoop().execute(new Runnable() {
+				public void run() {
+					try {
+						handler.sent(channel, msg);
+					} catch (RemotingException e) {
+						throw new RuntimeException(e);
+					}
+				}
+			});
+
 		} finally {
 			NettyChannel.removeChannelIfDisconnected(ctx.channel());
 		}
@@ -142,8 +144,7 @@ public class NettyHandler extends ChannelHandlerAdapter implements
 	@Override
 	public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
 			throws Exception {
-		NettyChannel channel = NettyChannel.getOrAddChannel(ctx.channel(), url,
-				handler);
+		NettyChannel channel = NettyChannel.getOrAddChannel(ctx.channel(), url,handler);
 		try {
 			handler.caught(channel, cause);
 		} finally {

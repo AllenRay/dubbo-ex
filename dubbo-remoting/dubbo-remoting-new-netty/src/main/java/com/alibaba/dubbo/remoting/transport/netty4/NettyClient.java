@@ -27,10 +27,14 @@ import com.alibaba.dubbo.remoting.transport.AbstractClient;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.*;
+import io.netty.channel.epoll.EpollEventLoopGroup;
+import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.util.internal.SystemPropertyUtil;
 
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -60,13 +64,28 @@ public class NettyClient extends AbstractClient {
 
 	@Override
 	protected void doOpen() throws Throwable {
+		String name = SystemPropertyUtil.get("os.name").toLowerCase(Locale.UK).trim();
 		NettyHelper.setNettyLoggerFactory();
-		bootstrap = new Bootstrap().group(getWorkerGroup())
-				.channel(NioSocketChannel.class)
-				.option(ChannelOption.SO_KEEPALIVE, true)
+
+		workerGroup = new NioEventLoopGroup(Constants.DEFAULT_IO_THREADS,
+				new NamedThreadFactory("NettyClientTCPWorker", true));
+
+		bootstrap = new Bootstrap();
+		if(name == null || !name.startsWith("linux")){
+			workerGroup = new NioEventLoopGroup(Constants.DEFAULT_IO_THREADS,new NamedThreadFactory("NettyClientTCPWorker", true));
+			bootstrap.group(workerGroup);
+			bootstrap.channel(NioSocketChannel.class);
+		}else{
+			workerGroup = new EpollEventLoopGroup(Constants.DEFAULT_IO_THREADS,new NamedThreadFactory("NettyClientTCPWorker", true));
+			bootstrap.group(workerGroup);
+			bootstrap.channel(EpollSocketChannel.class);
+		}
+		bootstrap.option(ChannelOption.SO_KEEPALIVE, true)
 				.option(ChannelOption.TCP_NODELAY, true)
 				.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getTimeout())
-		        .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
+		        .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
+		        .option(ChannelOption.WRITE_BUFFER_HIGH_WATER_MARK, 32 * 1024)
+				.option(ChannelOption.WRITE_BUFFER_LOW_WATER_MARK, 8 * 1024);
 
 		final NettyHandler nettyHandler = new NettyHandler(getUrl(), this);
 		bootstrap.handler(new ChannelInitializer<SocketChannel>() {
@@ -81,12 +100,6 @@ public class NettyClient extends AbstractClient {
 				pipeline.addLast("handler", nettyHandler);
 			}
 		});
-	}
-	
-	protected EventLoopGroup getWorkerGroup() {
-		workerGroup = new NioEventLoopGroup(Constants.DEFAULT_IO_THREADS,
-				new NamedThreadFactory("NettyClientTCPWorker", true));
-		return workerGroup;
 	}
 
 	protected void doConnect() throws Throwable {
